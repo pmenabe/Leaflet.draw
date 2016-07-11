@@ -262,13 +262,18 @@ L.Draw.Polyline = L.Draw.Feature.extend({
 			}
 
 			this._mouseMarker
-				.on('mousedown', this._onMouseDown, this)
+        .on('mousedown', this._onMouseDown, this)
+        .on('mouseout', this._onMouseOut, this)
+        .on('mouseup', this._onMouseUp, this) // Necessary for 0.8 compatibility
+        .on('mousemove', this._onMouseMove, this) // Necessary to prevent 0.8 stutter
 				.addTo(this._map);
 
 			this._map
-				.on('mousemove', this._onMouseMove, this)
-				.on('mouseup', this._onMouseUp, this)
-				.on('zoomend', this._onZoomEnd, this);
+        .on('mouseup', this._onMouseUp, this) // Necessary for 0.7 compatibility
+        .on('mousemove', this._onMouseMove, this)
+        .on('zoomlevelschange', this._onZoomEnd, this)
+        .on('click', this._onTouch, this)
+        .on('zoomend', this._onZoomEnd, this);
 		}
 	},
 
@@ -288,8 +293,10 @@ L.Draw.Polyline = L.Draw.Feature.extend({
 		delete this._poly;
 
 		this._mouseMarker
-			.off('mousedown', this._onMouseDown, this)
-			.off('mouseup', this._onMouseUp, this);
+      .off('mousedown', this._onMouseDown, this)
+      .off('mouseout', this._onMouseOut, this)
+      .off('mouseup', this._onMouseUp, this)
+      .off('mousemove', this._onMouseMove, this);
 		this._map.removeLayer(this._mouseMarker);
 		delete this._mouseMarker;
 
@@ -297,325 +304,356 @@ L.Draw.Polyline = L.Draw.Feature.extend({
 		this._clearGuides();
 
 		this._map
-			.off('mousemove', this._onMouseMove, this)
-			.off('zoomend', this._onZoomEnd, this);
+      .off('mouseup', this._onMouseUp, this)
+      .off('mousemove', this._onMouseMove, this)
+      .off('zoomlevelschange', this._onZoomEnd, this)
+      .off('zoomend', this._onZoomEnd, this)
+      .off('click', this._onTouch, this);
 	},
 
-	deleteLastVertex: function () {
-		if (this._markers.length <= 1) {
-			return;
-		}
+  deleteLastVertex: function () {
+    if (this._markers.length <= 1) {
+      return;
+    }
 
-		var lastMarker = this._markers.pop(),
-			poly = this._poly,
-			latlng = this._spliceLatLngs(poly.getLatLngs().length - 1, 1)[0];
+    var lastMarker = this._markers.pop(),
+      poly = this._poly,
+      latlng = this._poly.spliceLatLngs(poly.getLatLngs().length - 1, 1)[0];
 
-		this._markerGroup.removeLayer(lastMarker);
-
-		if (poly.getLatLngs().length < 2) {
-			this._map.removeLayer(poly);
-		}
-
-		this._vertexChanged(latlng, false);
-	},
-
-	addVertex: function (latlng) {
-		var markersLength = this._markers.length;
-
-		if (markersLength > 0 && !this.options.allowIntersection && this._poly.newLatLngIntersects(latlng)) {
-			this._showErrorTooltip();
-			return;
-		}
-		else if (this._errorShown) {
-			this._hideErrorTooltip();
-		}
-
-		this._markers.push(this._createMarker(latlng));
-
-		this._poly.addLatLng(latlng);
-
-		if (this._poly.getLatLngs().length === 2) {
-			this._map.addLayer(this._poly);
-		}
-
-		this._vertexChanged(latlng, true);
-	},
-
-	_finishShape: function () {
-		var intersects = this._poly.newLatLngIntersects(this._poly.getLatLngs()[0], true);
-
-		if ((!this.options.allowIntersection && intersects) || !this._shapeIsValid()) {
-			this._showErrorTooltip();
-			return;
-		}
-
-		this._fireCreatedEvent();
-		this.disable();
-		if (this.options.repeatMode) {
-			this.enable();
-		}
-	},
-
-	//Called to verify the shape is valid when the user tries to finish it
-	//Return false if the shape is not valid
-	_shapeIsValid: function () {
-		return true;
-	},
-
-	_onZoomEnd: function () {
-		this._updateGuide();
-	},
-
-	_onMouseMove: function (e) {
-		var newPos = e.layerPoint,
-			latlng = e.latlng;
-
-		// Save latlng
-		// should this be moved to _updateGuide() ?
-		this._currentLatLng = latlng;
-
-		this._updateTooltip(latlng);
-
-		// Update the guide line
-		this._updateGuide(newPos);
-
-		// Update the mouse marker position
-		this._mouseMarker.setLatLng(latlng);
-
-		L.DomEvent.preventDefault(e.originalEvent);
-	},
-
-	_vertexChanged: function (latlng, added) {
-		this._updateFinishHandler();
-
-		this._updateRunningMeasure(latlng, added);
-
-		this._clearGuides();
-
-		this._updateTooltip();
-	},
-
-	_onMouseDown: function (e) {
-		var originalEvent = e.originalEvent;
-		this._mouseDownOrigin = L.point(originalEvent.clientX, originalEvent.clientY);
-	},
-
-	_onMouseUp: function (e) {
-		if (this._mouseDownOrigin) {
-			// We detect clicks within a certain tolerance, otherwise let it
-			// be interpreted as a drag by the map
-			var distance = L.point(e.originalEvent.clientX, e.originalEvent.clientY)
-				.distanceTo(this._mouseDownOrigin);
-			if (Math.abs(distance) < 9 * (window.devicePixelRatio || 1)) {
-				this.addVertex(e.latlng);
-			}
-		}
-		this._mouseDownOrigin = null;
-	},
-
-	_updateFinishHandler: function () {
-		var markerCount = this._markers.length;
-		// The last marker should have a click handler to close the polyline
-		if (markerCount > 1) {
-			this._markers[markerCount - 1].on('click', this._finishShape, this);
-		}
-
-		// Remove the old marker click handler (as only the last point should close the polyline)
-		if (markerCount > 2) {
-			this._markers[markerCount - 2].off('click', this._finishShape, this);
-		}
-	},
-
-	_createMarker: function (latlng) {
-		var marker = new L.Marker(latlng, {
-			icon: this.options.icon,
-			zIndexOffset: this.options.zIndexOffset * 2
-		});
-
-		this._markerGroup.addLayer(marker);
-
-		return marker;
-	},
-
-	_updateGuide: function (newPos) {
-		var markerCount = this._markers.length;
-
-		if (markerCount > 0) {
-			newPos = newPos || this._map.latLngToLayerPoint(this._currentLatLng);
-
-			// draw the guide line
-			this._clearGuides();
-			this._drawGuide(
-				this._map.latLngToLayerPoint(this._markers[markerCount - 1].getLatLng()),
-				newPos
-			);
-		}
-	},
-
-	_updateTooltip: function (latLng) {
-		var text = this._getTooltipText();
-
-		if (latLng) {
-			this._tooltip.updatePosition(latLng);
-		}
-
-		if (!this._errorShown) {
-			this._tooltip.updateContent(text);
-		}
-	},
-
-	_drawGuide: function (pointA, pointB) {
-		var length = Math.floor(Math.sqrt(Math.pow((pointB.x - pointA.x), 2) + Math.pow((pointB.y - pointA.y), 2))),
-			guidelineDistance = this.options.guidelineDistance,
-			maxGuideLineLength = this.options.maxGuideLineLength,
-			// Only draw a guideline with a max length
-			i = length > maxGuideLineLength ? length - maxGuideLineLength : guidelineDistance,
-			fraction,
-			dashPoint,
-			dash;
-
-		//create the guides container if we haven't yet
-		if (!this._guidesContainer) {
-			this._guidesContainer = L.DomUtil.create('div', 'leaflet-draw-guides', this._overlayPane);
-		}
-
-		//draw a dash every GuildeLineDistance
-		for (; i < length; i += this.options.guidelineDistance) {
-			//work out fraction along line we are
-			fraction = i / length;
-
-			//calculate new x,y point
-			dashPoint = {
-				x: Math.floor((pointA.x * (1 - fraction)) + (fraction * pointB.x)),
-				y: Math.floor((pointA.y * (1 - fraction)) + (fraction * pointB.y))
-			};
-
-			//add guide dash to guide container
-			dash = L.DomUtil.create('div', 'leaflet-draw-guide-dash', this._guidesContainer);
-			dash.style.backgroundColor =
-				!this._errorShown ? this.options.shapeOptions.color : this.options.drawError.color;
-
-			L.DomUtil.setPosition(dash, dashPoint);
-		}
-	},
-
-	_updateGuideColor: function (color) {
-		if (this._guidesContainer) {
-			for (var i = 0, l = this._guidesContainer.childNodes.length; i < l; i++) {
-				this._guidesContainer.childNodes[i].style.backgroundColor = color;
-			}
-		}
-	},
-
-	// removes all child elements (guide dashes) from the guides container
-	_clearGuides: function () {
-		if (this._guidesContainer) {
-			while (this._guidesContainer.firstChild) {
-				this._guidesContainer.removeChild(this._guidesContainer.firstChild);
-			}
-		}
-	},
-
-	_getTooltipText: function () {
-		var showLength = this.options.showLength,
-			labelText, distanceStr;
-
-		if (this._markers.length === 0) {
-			labelText = {
-				text: L.drawLocal.draw.handlers.polyline.tooltip.start
-			};
-		} else {
-			distanceStr = showLength ? this._getMeasurementString() : '';
-
-			if (this._markers.length === 1) {
-				labelText = {
-					text: L.drawLocal.draw.handlers.polyline.tooltip.cont,
-					subtext: distanceStr
-				};
-			} else {
-				labelText = {
-					text: L.drawLocal.draw.handlers.polyline.tooltip.end,
-					subtext: distanceStr
-				};
-			}
-		}
-		return labelText;
-	},
-
-	_updateRunningMeasure: function (latlng, added) {
-		var markersLength = this._markers.length,
-			previousMarkerIndex, distance;
-
-		if (this._markers.length === 1) {
-			this._measurementRunningTotal = 0;
-		} else {
-			previousMarkerIndex = markersLength - (added ? 2 : 1);
-			distance = latlng.distanceTo(this._markers[previousMarkerIndex].getLatLng());
-
-			this._measurementRunningTotal += distance * (added ? 1 : -1);
-		}
-	},
-
-	_getMeasurementString: function () {
-		var currentLatLng = this._currentLatLng,
-			previousLatLng = this._markers[this._markers.length - 1].getLatLng(),
-			distance;
-
-		// calculate the distance from the last fixed point to the mouse position
-		distance = this._measurementRunningTotal + currentLatLng.distanceTo(previousLatLng);
-
-		return L.GeometryUtil.readableDistance(distance, this.options.metric);
-	},
-
-	_showErrorTooltip: function () {
-		this._errorShown = true;
-
-		// Update tooltip
-		this._tooltip
-			.showAsError()
-			.updateContent({ text: this.options.drawError.message });
-
-		// Update shape
-		this._updateGuideColor(this.options.drawError.color);
-		this._poly.setStyle({ color: this.options.drawError.color });
-
-		// Hide the error after 2 seconds
-		this._clearHideErrorTimeout();
-		this._hideErrorTimeout = setTimeout(L.Util.bind(this._hideErrorTooltip, this), this.options.drawError.timeout);
-	},
-
-	_hideErrorTooltip: function () {
-		this._errorShown = false;
-
-		this._clearHideErrorTimeout();
-
-		// Revert tooltip
-		this._tooltip
-			.removeError()
-			.updateContent(this._getTooltipText());
-
-		// Revert shape
-		this._updateGuideColor(this.options.shapeOptions.color);
-		this._poly.setStyle({ color: this.options.shapeOptions.color });
-	},
-
-	_clearHideErrorTimeout: function () {
-		if (this._hideErrorTimeout) {
-			clearTimeout(this._hideErrorTimeout);
-			this._hideErrorTimeout = null;
-		}
-	},
-
-	_cleanUpShape: function () {
-		if (this._markers.length > 1) {
-			this._markers[this._markers.length - 1].off('click', this._finishShape, this);
-		}
-	},
-
-	_fireCreatedEvent: function () {
-		var poly = new this.Poly(this._poly.getLatLngs(), this.options.shapeOptions);
-		L.Draw.Feature.prototype._fireCreatedEvent.call(this, poly);
-	}
+    this._markerGroup.removeLayer(lastMarker);
+
+    if (poly.getLatLngs().length < 2) {
+      this._map.removeLayer(poly);
+    }
+
+    this._vertexChanged(latlng, false);
+  },
+
+  addVertex: function (latlng) {
+    var markersLength = this._markers.length;
+
+    if (markersLength > 0 && !this.options.allowIntersection && this._poly.newLatLngIntersects(latlng)) {
+      this._showErrorTooltip();
+      return;
+    }
+    else if (this._errorShown) {
+      this._hideErrorTooltip();
+    }
+
+    this._markers.push(this._createMarker(latlng));
+
+    this._poly.addLatLng(latlng);
+
+    if (this._poly.getLatLngs().length === 2) {
+      this._map.addLayer(this._poly);
+    }
+
+    this._vertexChanged(latlng, true);
+  },
+
+  completeShape: function () {
+    if (this._markers.length <= 1) {
+      return;
+    }
+
+    this._fireCreatedEvent();
+    this.disable();
+
+    if (this.options.repeatMode) {
+      this.enable();
+    }
+  },
+
+  _finishShape: function () {
+    var intersects = this._poly.newLatLngIntersects(this._poly.getLatLngs()[this._poly.getLatLngs().length - 1]);
+
+    if ((!this.options.allowIntersection && intersects) || !this._shapeIsValid()) {
+      this._showErrorTooltip();
+      return;
+    }
+
+    this._fireCreatedEvent();
+    this.disable();
+    if (this.options.repeatMode) {
+      this.enable();
+    }
+  },
+
+  //Called to verify the shape is valid when the user tries to finish it
+  //Return false if the shape is not valid
+  _shapeIsValid: function () {
+    return true;
+  },
+
+  _onZoomEnd: function () {
+    this._updateGuide();
+  },
+
+  _onMouseMove: function (e) {
+    var newPos = this._map.mouseEventToLayerPoint(e.originalEvent);
+    var latlng = this._map.layerPointToLatLng(newPos);
+
+    // Save latlng
+    // should this be moved to _updateGuide() ?
+    this._currentLatLng = latlng;
+
+    this._updateTooltip(latlng);
+
+    // Update the guide line
+    this._updateGuide(newPos);
+
+    // Update the mouse marker position
+    this._mouseMarker.setLatLng(latlng);
+
+    L.DomEvent.preventDefault(e.originalEvent);
+  },
+
+  _vertexChanged: function (latlng, added) {
+    this._map.fire('draw:drawvertex', { layers: this._markerGroup });
+    this._updateFinishHandler();
+
+    this._updateRunningMeasure(latlng, added);
+
+    this._clearGuides();
+
+    this._updateTooltip();
+  },
+
+  _onMouseDown: function (e) {
+    var originalEvent = e.originalEvent;
+    this._mouseDownOrigin = L.point(originalEvent.clientX, originalEvent.clientY);
+  },
+
+  _onMouseUp: function (e) {
+    if (this._mouseDownOrigin) {
+      // We detect clicks within a certain tolerance, otherwise let it
+      // be interpreted as a drag by the map
+      var distance = L.point(e.originalEvent.clientX, e.originalEvent.clientY)
+        .distanceTo(this._mouseDownOrigin);
+      if (Math.abs(distance) < 9 * (window.devicePixelRatio || 1)) {
+        this.addVertex(e.latlng);
+      }
+    }
+    this._mouseDownOrigin = null;
+  },
+
+  _onTouch: function (e) {
+    // #TODO: use touchstart and touchend vs using click(touch start & end).
+    if (L.Browser.touch) { // #TODO: get rid of this once leaflet fixes their click/touch.
+      this._onMouseDown(e);
+      this._onMouseUp(e);
+    }
+  },
+
+  _onMouseOut: function () {
+    if (this._tooltip) {
+      this._tooltip._onMouseOut.call(this._tooltip);
+    }
+  },
+
+  _updateFinishHandler: function () {
+    var markerCount = this._markers.length;
+    // The last marker should have a click handler to close the polyline
+    if (markerCount > 1) {
+      this._markers[markerCount - 1].on('click', this._finishShape, this);
+    }
+
+    // Remove the old marker click handler (as only the last point should close the polyline)
+    if (markerCount > 2) {
+      this._markers[markerCount - 2].off('click', this._finishShape, this);
+    }
+  },
+
+  _createMarker: function (latlng) {
+    var marker = new L.Marker(latlng, {
+      icon: this.options.icon,
+      zIndexOffset: this.options.zIndexOffset * 2
+    });
+
+    this._markerGroup.addLayer(marker);
+
+    return marker;
+  },
+
+  _updateGuide: function (newPos) {
+    var markerCount = this._markers ? this._markers.length : 0;
+
+    if (markerCount > 0) {
+      newPos = newPos || this._map.latLngToLayerPoint(this._currentLatLng);
+
+      // draw the guide line
+      this._clearGuides();
+      this._drawGuide(
+        this._map.latLngToLayerPoint(this._markers[markerCount - 1].getLatLng()),
+        newPos
+      );
+    }
+  },
+
+  _updateTooltip: function (latLng) {
+    var text = this._getTooltipText();
+
+    if (latLng) {
+      this._tooltip.updatePosition(latLng);
+    }
+
+    if (!this._errorShown) {
+      this._tooltip.updateContent(text);
+    }
+  },
+
+  _drawGuide: function (pointA, pointB) {
+    var length = Math.floor(Math.sqrt(Math.pow((pointB.x - pointA.x), 2) + Math.pow((pointB.y - pointA.y), 2))),
+      guidelineDistance = this.options.guidelineDistance,
+      maxGuideLineLength = this.options.maxGuideLineLength,
+      // Only draw a guideline with a max length
+      i = length > maxGuideLineLength ? length - maxGuideLineLength : guidelineDistance,
+      fraction,
+      dashPoint,
+      dash;
+
+    //create the guides container if we haven't yet
+    if (!this._guidesContainer) {
+      this._guidesContainer = L.DomUtil.create('div', 'leaflet-draw-guides', this._overlayPane);
+    }
+
+    //draw a dash every GuildeLineDistance
+    for (; i < length; i += this.options.guidelineDistance) {
+      //work out fraction along line we are
+      fraction = i / length;
+
+      //calculate new x,y point
+      dashPoint = {
+        x: Math.floor((pointA.x * (1 - fraction)) + (fraction * pointB.x)),
+        y: Math.floor((pointA.y * (1 - fraction)) + (fraction * pointB.y))
+      };
+
+      //add guide dash to guide container
+      dash = L.DomUtil.create('div', 'leaflet-draw-guide-dash', this._guidesContainer);
+      dash.style.backgroundColor =
+        !this._errorShown ? this.options.shapeOptions.color : this.options.drawError.color;
+
+      L.DomUtil.setPosition(dash, dashPoint);
+    }
+  },
+
+  _updateGuideColor: function (color) {
+    if (this._guidesContainer) {
+      for (var i = 0, l = this._guidesContainer.childNodes.length; i < l; i++) {
+        this._guidesContainer.childNodes[i].style.backgroundColor = color;
+      }
+    }
+  },
+
+  // removes all child elements (guide dashes) from the guides container
+  _clearGuides: function () {
+    if (this._guidesContainer) {
+      while (this._guidesContainer.firstChild) {
+        this._guidesContainer.removeChild(this._guidesContainer.firstChild);
+      }
+    }
+  },
+
+  _getTooltipText: function () {
+    var showLength = this.options.showLength,
+      labelText, distanceStr;
+
+    if (this._markers.length === 0) {
+      labelText = {
+        text: L.drawLocal.draw.handlers.polyline.tooltip.start
+      };
+    } else {
+      distanceStr = showLength ? this._getMeasurementString() : '';
+
+      if (this._markers.length === 1) {
+        labelText = {
+          text: L.drawLocal.draw.handlers.polyline.tooltip.cont,
+          subtext: distanceStr
+        };
+      } else {
+        labelText = {
+          text: L.drawLocal.draw.handlers.polyline.tooltip.end,
+          subtext: distanceStr
+        };
+      }
+    }
+    return labelText;
+  },
+
+  _updateRunningMeasure: function (latlng, added) {
+    var markersLength = this._markers.length,
+      previousMarkerIndex, distance;
+
+    if (this._markers.length === 1) {
+      this._measurementRunningTotal = 0;
+    } else {
+      previousMarkerIndex = markersLength - (added ? 2 : 1);
+      distance = latlng.distanceTo(this._markers[previousMarkerIndex].getLatLng());
+
+      this._measurementRunningTotal += distance * (added ? 1 : -1);
+    }
+  },
+
+  _getMeasurementString: function () {
+    var currentLatLng = this._currentLatLng,
+      previousLatLng = this._markers[this._markers.length - 1].getLatLng(),
+      distance;
+
+    // calculate the distance from the last fixed point to the mouse position
+    //distance = this._measurementRunningTotal + currentLatLng.distanceTo(previousLatLng);
+
+    //return L.GeometryUtil.readableDistance(distance, this.options.metric, this.options.feet);
+  },
+
+  _showErrorTooltip: function () {
+    this._errorShown = true;
+
+    // Update tooltip
+    this._tooltip
+      .showAsError()
+      .updateContent({ text: this.options.drawError.message });
+
+    // Update shape
+    this._updateGuideColor(this.options.drawError.color);
+    this._poly.setStyle({ color: this.options.drawError.color });
+
+    // Hide the error after 2 seconds
+    this._clearHideErrorTimeout();
+    this._hideErrorTimeout = setTimeout(L.Util.bind(this._hideErrorTooltip, this), this.options.drawError.timeout);
+  },
+
+  _hideErrorTooltip: function () {
+    this._errorShown = false;
+
+    this._clearHideErrorTimeout();
+
+    // Revert tooltip
+    this._tooltip
+      .removeError()
+      .updateContent(this._getTooltipText());
+
+    // Revert shape
+    this._updateGuideColor(this.options.shapeOptions.color);
+    this._poly.setStyle({ color: this.options.shapeOptions.color });
+  },
+
+  _clearHideErrorTimeout: function () {
+    if (this._hideErrorTimeout) {
+      clearTimeout(this._hideErrorTimeout);
+      this._hideErrorTimeout = null;
+    }
+  },
+
+  _cleanUpShape: function () {
+    if (this._markers.length > 1) {
+      this._markers[this._markers.length - 1].off('click', this._finishShape, this);
+    }
+  },
+
+  _fireCreatedEvent: function () {
+    var poly = new this.Poly(this._poly.getLatLngs(), this.options.shapeOptions);
+    L.Draw.Feature.prototype._fireCreatedEvent.call(this, poly);
+  }
 });
 
 
@@ -753,7 +791,9 @@ L.Draw.SimpleShape = L.Draw.Feature.extend({
 
 			this._map
 				.on('mousedown', this._onMouseDown, this)
-				.on('mousemove', this._onMouseMove, this);
+				.on('mousemove', this._onMouseMove, this)
+        .on('touchstart', this._onMouseDown, this)
+        .on('touchmove', this._onMouseMove, this);
 		}
 	},
 
@@ -769,9 +809,12 @@ L.Draw.SimpleShape = L.Draw.Feature.extend({
 
 			this._map
 				.off('mousedown', this._onMouseDown, this)
-				.off('mousemove', this._onMouseMove, this);
+				.off('mousemove', this._onMouseMove, this)
+        .off('touchstart', this._onMouseDown, this)
+        .off('touchmove', this._onMouseMove, this);
 
 			L.DomEvent.off(document, 'mouseup', this._onMouseUp, this);
+      L.DomEvent.off(document, 'touchend', this._onMouseUp, this);
 
 			// If the box element doesn't exist they must not have moved the mouse, so don't need to destroy/return
 			if (this._shape) {
@@ -782,12 +825,19 @@ L.Draw.SimpleShape = L.Draw.Feature.extend({
 		this._isDrawing = false;
 	},
 
+  _getTooltipText: function () {
+    return {
+      text: this._endLabelText
+    };
+  },
+
 	_onMouseDown: function (e) {
 		this._isDrawing = true;
 		this._startLatLng = e.latlng;
 
 		L.DomEvent
 			.on(document, 'mouseup', this._onMouseUp, this)
+      .on(document, 'touchend', this._onMouseUp, this)
 			.preventDefault(e.originalEvent);
 	},
 
@@ -796,7 +846,7 @@ L.Draw.SimpleShape = L.Draw.Feature.extend({
 
 		this._tooltip.updatePosition(latlng);
 		if (this._isDrawing) {
-			this._tooltip.updateContent({ text: this._endLabelText });
+      this._tooltip.updateContent(this._getTooltipText());
 			this._drawShape(latlng);
 		}
 	},
@@ -963,6 +1013,7 @@ L.Draw.Marker = L.Draw.Feature.extend({
 				.addTo(this._map);
 
 			this._map.on('mousemove', this._onMouseMove, this);
+      this._map.on('click', this._onTouch, this);
 		}
 	},
 
@@ -974,6 +1025,7 @@ L.Draw.Marker = L.Draw.Feature.extend({
 				this._marker.off('click', this._onClick, this);
 				this._map
 					.off('click', this._onClick, this)
+          .off('click', this._onTouch, this)
 					.removeLayer(this._marker);
 				delete this._marker;
 			}
@@ -1017,6 +1069,12 @@ L.Draw.Marker = L.Draw.Feature.extend({
 			this.enable();
 		}
 	},
+
+  _onTouch: function (e) {
+    // called on click & tap, only really does any thing on tap
+    this._onMouseMove(e); // creates & places marker
+    this._onClick(); // permanently places marker & ends interaction
+  },
 
 	_fireCreatedEvent: function () {
 		var marker = new L.Marker(this._marker.getLatLng(), { icon: this.options.icon });

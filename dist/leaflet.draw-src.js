@@ -263,7 +263,6 @@ L.Draw.Polyline = L.Draw.Feature.extend({
 
 			this._mouseMarker
         .on('mousedown', this._onMouseDown, this)
-        .on('mouseout', this._onMouseOut, this)
         .on('mouseup', this._onMouseUp, this) // Necessary for 0.8 compatibility
         .on('mousemove', this._onMouseMove, this) // Necessary to prevent 0.8 stutter
 				.addTo(this._map);
@@ -294,7 +293,6 @@ L.Draw.Polyline = L.Draw.Feature.extend({
 
 		this._mouseMarker
       .off('mousedown', this._onMouseDown, this)
-      .off('mouseout', this._onMouseOut, this)
       .off('mouseup', this._onMouseUp, this)
       .off('mousemove', this._onMouseMove, this);
 		this._map.removeLayer(this._mouseMarker);
@@ -442,12 +440,6 @@ L.Draw.Polyline = L.Draw.Feature.extend({
     if (L.Browser.touch) { // #TODO: get rid of this once leaflet fixes their click/touch.
       this._onMouseDown(e);
       this._onMouseUp(e);
-    }
-  },
-
-  _onMouseOut: function () {
-    if (this._tooltip) {
-      this._tooltip._onMouseOut.call(this._tooltip);
     }
   },
 

@@ -104,7 +104,6 @@ L.drawLocal = {
 	}
 };
 
-
 L.Draw = {};
 
 L.Draw.Feature = L.Handler.extend({
@@ -202,6 +201,10 @@ L.Draw.Polyline = L.Draw.Feature.extend({
 			iconSize: new L.Point(8, 8),
 			className: 'leaflet-div-icon leaflet-editing-icon'
 		}),
+    touchIcon: new L.DivIcon({
+      iconSize: new L.Point(20, 20),
+      className: 'leaflet-div-icon leaflet-editing-icon leaflet-touch-icon'
+    }),
 		guidelineDistance: 20,
 		maxGuideLineLength: 4000,
 		shapeOptions: {
@@ -218,6 +221,10 @@ L.Draw.Polyline = L.Draw.Feature.extend({
 	},
 
 	initialize: function (map, options) {
+    // if touch, switch to touch icon
+    if (L.Browser.touch) {
+      this.options.icon = this.options.touchIcon;
+    }
 		// Need to set this here to ensure the correct message is used.
 		this.options.drawError.message = L.drawLocal.draw.handlers.polyline.error;
 
@@ -1086,10 +1093,19 @@ L.Edit.Poly = L.Handler.extend({
 		icon: new L.DivIcon({
 			iconSize: new L.Point(8, 8),
 			className: 'leaflet-div-icon leaflet-editing-icon'
-		})
+		}),
+    touchIcon: new L.DivIcon({
+      iconSize: new L.Point(20, 20),
+      className: 'leaflet-div-icon leaflet-editing-icon leaflet-touch-icon'
+    }),
 	},
 
 	initialize: function (poly, options) {
+    // if touch, switch to touch icon
+    if (L.Browser.touch) {
+      this.options.icon = this.options.touchIcon;
+    }
+
 		this._poly = poly;
 		L.setOptions(this, options);
 
@@ -1384,7 +1400,15 @@ L.Edit.SimpleShape = L.Handler.extend({
 		resizeIcon: new L.DivIcon({
 			iconSize: new L.Point(8, 8),
 			className: 'leaflet-div-icon leaflet-editing-icon leaflet-edit-resize'
-		})
+		}),
+    moveTouchIcon: new L.DivIcon({
+      iconSize: new L.Point(20, 20),
+      className: 'leaflet-div-icon leaflet-editing-icon leaflet-touch-icon'
+    }),
+    resizeTouchIcon: new L.DivIcon({
+      iconSize: new L.Point(20, 20),
+      className: 'leaflet-div-icon leaflet-editing-icon leaflet-touch-icon'
+    }),
 	},
 
 	initialize: function (shape, options) {
@@ -1518,6 +1542,10 @@ L.Edit = L.Edit || {};
 
 L.Edit.Rectangle = L.Edit.SimpleShape.extend({
 	_createMoveMarker: function () {
+    // if touch, switch to touch icon
+    if (L.Browser.touch) {
+      this.options.moveIcon = this.options.moveTouchIcon;
+    }
 		var bounds = this._shape.getBounds(),
 			center = bounds.getCenter();
 
@@ -1525,6 +1553,10 @@ L.Edit.Rectangle = L.Edit.SimpleShape.extend({
 	},
 
 	_createResizeMarker: function () {
+    // if touch, switch to touch icon
+    if (L.Browser.touch) {
+      this.options.resizeIcon = this.options.resizeTouchIcon;
+    }
 		var corners = this._getCorners();
 
 		this._resizeMarkers = [];
@@ -1574,27 +1606,12 @@ L.Edit.Rectangle = L.Edit.SimpleShape.extend({
 			center = bounds.getCenter(),
 			offset, newLatLngs = [];
 
-		console.log('_move() latlngs', latlngs)
-		console.log('_move() latlngs.length', latlngs.length)
-
 		// Offset the latlngs to the new center
 		for (var i = 0, l = latlngs[0].length; i < l; i++) {
 			offset = [latlngs[0][i].lat - center.lat, latlngs[0][i].lng - center.lng];
-
-			console.log('_move() offset', i, offset)
 			
 			newLatLngs.push([newCenter.lat + offset[0], newCenter.lng + offset[1]]);
-
-			console.log('_move() newLatLngs', i, newLatLngs)
-		}
-
-		console.log('_move() this', this)
-		console.log('_move() newCenter', newCenter)
-		console.log('_move() latlngs', latlngs)
-		console.log('_move() bounds', bounds)
-		console.log('_move() center', center)
-		console.log('_move() offset', offset)
-		console.log('_move() newLatLngs', newLatLngs)
+    }
 
 		this._shape.setLatLngs(newLatLngs);
 
@@ -1653,12 +1670,20 @@ L.Edit = L.Edit || {};
 
 L.Edit.Circle = L.Edit.SimpleShape.extend({
 	_createMoveMarker: function () {
+    // if touch, switch to touch icon
+    if (L.Browser.touch) {
+      this.options.moveIcon = this.options.moveTouchIcon;
+    }
 		var center = this._shape.getLatLng();
 
 		this._moveMarker = this._createMarker(center, this.options.moveIcon);
 	},
 
 	_createResizeMarker: function () {
+    // if touch, switch to touch icon
+    if (L.Browser.touch) {
+      this.options.resizeIcon = this.options.resizeTouchIcon;
+    }
 		var center = this._shape.getLatLng(),
 			resizemarkerPoint = this._getResizeMarkerPoint(center);
 
@@ -2769,8 +2794,8 @@ L.EditToolbar.Edit = L.Handler.extend({
 
 		// Back up this layer (if haven't before)
 		this._backupLayer(layer);
-
-		// Update layer style so appears editable
+		
+    // Update layer style so appears editable
 		if (this._selectedPathOptions) {
 			pathOptions = L.Util.extend({}, this._selectedPathOptions);
 
